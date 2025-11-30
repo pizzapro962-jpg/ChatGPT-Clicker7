@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT Clicker — Final Version</title>
+<style>
+body {
+  margin:0; padding:0; font-family:Arial,sans-serif;
+  background:black; color:#0ff; overflow:hidden; user-select:none;
+}
+#score { position:absolute; bottom:10px; left:50%; transform:translateX(-50%); font-size:2em; }
+#clickArea {
+  width:160px; height:160px; border-radius:50%;
+  position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+  display:flex; justify-content:center; align-items:center;
+  font-size:2em; font-weight:bold; cursor:pointer;
+  background:#0ff; box-shadow: 0 0 30px #0ff;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+#shopBtn, #musicBtn {
+  position:absolute; padding:8px 15px; background:#0ff; color:#000;
+  border:none; border-radius:8px; cursor:pointer; box-shadow:0 0 8px #0ff;
+  font-size:1.2em; z-index:5;
+}
+#shopBtn { left:10px; top:50%; transform:translateY(-50%); }
+#musicBtn { right:10px; top:10px; }
+#volumeControl { position:absolute; right:10px; top:50px; z-index:5; }
+#volumeControl input[type="range"] { width:120px; }
+#shopUI, #colorUI, #adminUI { position:absolute; background:#111; border:2px solid #0ff; padding:10px; display:none; flex-direction:column; overflow-y:auto; z-index:10; }
+#shopUI { left:50px; top:50%; transform:translateY(-50%); width:260px; max-height:400px; }
+#colorUI { left:330px; top:50%; transform:translateY(-50%); width:220px; }
+#adminUI { left:50%; top:10px; transform:translateX(-50%); width:400px; padding:15px; border-radius:10px; display:none; flex-direction:column; }
+.upgradeBtn { padding:10px; margin-bottom:10px; background:#0ff; color:#000; border:none; border-radius:10px; cursor:pointer; font-weight:bold; box-shadow:0 0 10px #0ff; transition: transform 0.1s; }
+.upgradeBtn:active { transform:scale(0.95); }
+.colorBtn { width:40px; height:40px; margin:5px; border-radius:50%; border:none; cursor:pointer; box-shadow:0 0 5px #0ff; }
+#eventTimer { position:absolute; top:5px; left:50%; transform:translateX(-50%); font-size:1.2em; background:#111a; padding:5px 10px; border-radius:5px; }
+.eventEmoji { position:absolute; font-size:1.5em; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<div id="score">0</div>
+<div id="clickArea">🤖</div>
+<button id="shopBtn">🏪</button>
+<button id="musicBtn">🎵</button>
+<div id="volumeControl"><input type="range" id="volSlider" min="0" max="1" step="0.01" value="0.4"></div>
+<div id="shopUI"></div>
+<div id="colorUI"></div>
+<div id="adminUI"></div>
+<div id="eventTimer">Next Event: 5:00</div>
+
+<audio id="bgm" loop><source src="assets/bgm.mp3" type="audio/mpeg"></audio>
+<audio id="clickSnd"><source src="assets/click.mp3" type="audio/mpeg"></audio>
+<audio id="frenzyBgm"><source src="assets/frenzy.mp3" type="audio/mpeg"></audio>
+
+<script>
+let score=0, clickValue=1, frenzyActive=false, colorPurchased=false, currentColor='#0ff', adminVisible=false;
+let nextEventTime=300, eventActive=false, activeEventInterval=null;
+const scoreDisplay=document.getElementById('score');
+const clickArea=document.getElementById('clickArea');
+const shopBtn=document.getElementById('shopBtn');
+const shopUI=document.getElementById('shopUI');
+const colorUI=document.getElementById('colorUI');
+const adminUI=document.getElementById('adminUI');
+const musicBtn=document.getElementById('musicBtn');
+const volSlider=document.getElementById('volSlider');
+const eventTimer=document.getElementById('eventTimer');
+const bgm=document.getElementById('bgm');
+const clickSnd=document.getElementById('clickSnd');
+const frenzyBgm=document.getElementById('frenzyBgm');
+
+const rainbowColors=['#ff0000','#ff7f00','#ffff00','#00ff00','#0000ff','#4b0082','#8b00ff'];
+
+// ---- Clicker ----
+clickArea.addEventListener('click',()=>{
+  score += clickValue*(frenzyActive?10:1);
+  scoreDisplay.textContent=score;
+  clickSnd.currentTime=0; clickSnd.play().catch(_=>{});
+});
+
+// ---- Shop ----
+function setupShop(){
+  const upgrades=[
+    {name:'2× Clicks', cost:50, action:()=>{clickValue*=2;}},
+    {name:'Auto Clicker', cost:100, action:()=>{setInterval(()=>{score+=clickValue; scoreDisplay.textContent=score;},1000);}},
+    {name:'Color Picker', cost:75, action:()=>{colorUI.style.display='flex'; colorPurchased=true;}},
+    {name:'Frenzy Mode', cost:150, action:()=>{startFrenzy();}}
+  ];
+  upgrades.forEach(u=>{
+    const btn=document.createElement('button'); btn.className='upgradeBtn';
+    btn.textContent=`${u.name} (${u.cost})`;
+    btn.addEventListener('click',()=>{ if(score>=u.cost){score-=u.cost; u.action(); scoreDisplay.textContent=score;}});
+    shopUI.appendChild(btn);
+  });
+}
+setupShop();
+
+// ---- Color Picker ----
+rainbowColors.forEach(c=>{
+  const btn=document.createElement('button'); btn.className='colorBtn';
+  btn.style.background=c;
+  btn.addEventListener('click',()=>{
+    currentColor=c;
+    clickArea.style.background=c;
+    clickArea.style.boxShadow=`0 0 30px ${c}`;
+    colorUI.style.display='none';
+  });
+  colorUI.appendChild(btn);
+});
+
+// ---- Music ----
+musicBtn.addEventListener('click',()=>{
+  if(bgm.paused){ bgm.currentTime=0; bgm.volume=volSlider.value; bgm.play().catch(_=>{}); musicBtn.textContent='🔊'; }
+  else{ bgm.pause(); musicBtn.textContent='🎵'; }
+});
+volSlider.addEventListener('input',()=>{ const v=volSlider.value; bgm.volume=v; clickSnd.volume=v; frenzyBgm.volume=v; });
+
+// ---- Frenzy ----
+function startFrenzy(){
+  if(frenzyActive) return;
+  frenzyActive=true;
+  let i=0;
+  const rainbowInterval = setInterval(()=>{
+    const c = rainbowColors[i % rainbowColors.length];
+    clickArea.style.background=c;
+    clickArea.style.boxShadow=`0 0 30px ${c}`;
+    i++;
+  }, 200);
+  frenzyBgm.currentTime=0; frenzyBgm.play().catch(_=>{});
+  setTimeout(()=>{
+    frenzyActive=false;
+    clearInterval(rainbowInterval);
+    clickArea.style.background=currentColor;
+    clickArea.style.boxShadow=`0 0 30px ${currentColor}`;
+    frenzyBgm.pause();
+  },10000);
+}
+
+// ---- Event Countdown ----
+setInterval(()=>{
+  if(nextEventTime>0) nextEventTime--;
+  let min=Math.floor(nextEventTime/60); let sec=nextEventTime%60;
+  eventTimer.textContent=`Next Event: ${min}:${sec<10?'0'+sec:sec}`;
+},1000);
+
+// ---- Admin Panel ----
+let typedCode='';
+window.addEventListener('keydown',e=>{
+  typedCode+=e.key;
+  if(typedCode.endsWith('123123')){
+    adminVisible = !adminVisible;
+    adminUI.style.display = adminVisible ? 'flex' : 'none';
+    typedCode='';
+  }
+});
+
+// Rainbow background for admin panel
+let adminColorIndex=0;
+setInterval(()=>{
+  if(adminVisible) adminUI.style.background=rainbowColors[adminColorIndex%rainbowColors.length];
+  adminColorIndex++;
+}, 200);
+
+function setupAdmin(){
+  const buttons=[
+    {name:'Rainbow Clicker', action:()=>{
+      let i=0; const interval=setInterval(()=>{
+        const c = rainbowColors[i%rainbowColors.length];
+        clickArea.style.background=c;
+        clickArea.style.boxShadow=`0 0 30px ${c}`;
+        i++;
+      },100);
+      setTimeout(()=>clearInterval(interval),10000);
+    }},
+    {name:'Give 100k Clicks', action:()=>{score+=100000; scoreDisplay.textContent=score;}},
+    {name:'Taco Rain 🌮', action:()=>{triggerEvent('taco',15);}},
+    {name:'Rain ☔', action:()=>{triggerEvent('rain',15);}},
+    {name:'Space 🪐', action:()=>{triggerEvent('space',15);}},
+    {name:'Clear Weather', action:()=>{stopEvent();}}
+  ];
+  buttons.forEach(b=>{
+    const btn=document.createElement('button'); btn.className='upgradeBtn';
+    btn.textContent=b.name;
+    btn.addEventListener('click',b.action);
+    adminUI.appendChild(btn);
+  });
+}
+setupAdmin();
+
+// ---- Event System ----
+function triggerEvent(type,duration){
+  if(eventActive) return;
+  eventActive=true;
+  let emojis=[];
+  if(type==='taco'){ emojis=['🌮']; }
+  else if(type==='rain'){ emojis=['☔']; }
+  else if(type==='space'){ emojis=['🪐']; clickArea.style.background='#9400d3'; clickArea.style.boxShadow='0 0 30px #9400d3'; }
+
+  let timeLeft=duration;
+  activeEventInterval=setInterval(()=>{
+    if(timeLeft<=0){ stopEvent(); return; }
+    timeLeft--;
+    eventTimer.textContent=`Event ${type.toUpperCase()}: ${timeLeft}s`;
+    spawnEmojis(emojis);
+  },1000);
+}
+function stopEvent(){
+  clearInterval(activeEventInterval);
+  eventActive=false;
+  eventTimer.textContent=`Next Event: ${Math.floor(nextEventTime/60)}:${(nextEventTime%60<10?'0':'')+(nextEventTime%60)}`;
+  clickArea.style.background=currentColor;
+  clickArea.style.boxShadow=`0 0 30px ${currentColor}`;
+}
+function spawnEmojis(arr){
+  arr.forEach(e=>{
+    const d=document.createElement('div');
+    d.className='eventEmoji'; d.textContent=e;
+    d.style.left=Math.random()*window.innerWidth+'px';
+    d.style.top='0px';
+    document.body.appendChild(d);
+    const fall = setInterval(()=>{
+      let t=parseFloat(d.style.top); if(t>window.innerHeight){ clearInterval(fall); d.remove(); return; }
+      d.style.top=(t+10)+'px';
+    },50);
+    setTimeout(()=>{clearInterval(fall); if(d.parentNode) d.remove();},3000);
+  });
+}
+
+// ---- Shop toggle ----
+shopBtn.addEventListener('click',()=>shopUI.style.display=shopUI.style.display==='flex'?'none':'flex');
+</script>
+</body>
+</html>
